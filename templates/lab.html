@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MQTT Broker Settings</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    label {
+      display: inline-block;
+      width: 150px;
+      margin-top: 10px;
+    }
+    input {
+      margin-top: 10px;
+      padding: 5px;
+      width: 200px;
+    }
+    button {
+      display: block;
+      margin-top: 20px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>MQTT Broker Settings</h1>
+
+  <label for="host">Broker Host:</label>
+  <input type="text" id="host" value="test.mosquitto.org" placeholder="e.g. test.mosquitto.org">
+
+  <br>
+
+  <label for="port">Broker Port:</label>
+  <input type="number" id="port" value="8080" placeholder="e.g. 8080">
+
+  <br>
+
+  <button id="saveSettingsBtn">Confirm Settings</button>
+
+  <script>
+    document.getElementById("saveSettingsBtn").addEventListener("click", function() {
+      const hostValue = document.getElementById("host").value;
+      const portValue = document.getElementById("port").value;
+
+      // This will just show the user’s selections in an alert
+      alert("You entered:\nHost: " + hostValue + "\nPort: " + portValue);
+
+
+    });
+  </script>
+</body>
+</html>
