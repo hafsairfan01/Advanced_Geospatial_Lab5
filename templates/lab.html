@@ -2,11 +2,18 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>MQTT Connection & Publish</title>
+  <title>MQTT + Leaflet Integration</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
+    }
+    #map {
+      height: 400px;  /* Adjust as needed */
+      width: 100%;
+      margin-top: 10px;
     }
     label, input, textarea {
       display: inline-block;
@@ -34,9 +41,9 @@
   </style>
 </head>
 <body>
-  <h1>MQTT Connection & Publish</h1>
+  <h1>MQTT + Leaflet Demo</h1>
 
-  <!-- Host and Port Inputs -->
+  <!-- Broker Settings -->
   <div class="row">
     <label for="host">Broker Host:</label>
     <input type="text" id="host" value="test.mosquitto.org" placeholder="e.g. test.mosquitto.org">
@@ -52,33 +59,88 @@
 
   <hr>
 
-  <!-- Topic and Message Inputs -->
+  <!-- Topic & Message -->
   <div class="row">
     <label for="topic">Topic:</label>
-    <input type="text" id="topic" value="test/topic" placeholder="Enter a topic">
+    <input type="text" id="topic" value="ENGO651/Your_Name/my_temperature" 
+           placeholder="e.g. ENGO651/Your_Name/my_temperature">
   </div>
   <div class="row">
     <label for="message">Message:</label>
     <textarea id="message" rows="3" placeholder="Type your message here"></textarea>
   </div>
   <button id="publishBtn" disabled>Publish</button>
-
   <hr>
 
-  <!-- Share My Status Button -->
+  <!-- Share My Status -->
   <button id="shareStatusBtn" disabled>Share My Status</button>
 
   <!-- Status Output -->
   <div id="status"></div>
 
+  <!-- The Leaflet Map -->
+  <div id="map"></div>
+
   <!-- Include Paho MQTT JavaScript Client Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <!-- Include Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
   <script>
     let client = null;
     let isConnected = false;
-    let isManualDisconnect = false;  // For auto-reconnect logic
-    const reconnectDelay = 3000;     // For auto-reconnect logic
+    let isManualDisconnect = false;
+
+    // Leaflet map + marker reference
+    let map, marker;
+
+    // Initialize the Leaflet map
+    function initMap() {
+      // Center the map on [0, 0] at zoom level 2 initially
+      map = L.map('map').setView([0, 0], 2);
+
+      // Add a tile layer (OpenStreetMap)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
+      }).addTo(map);
+    }
+
+    // Determine marker color based on temperature
+    function getMarkerColor(temp) {
+      if (temp < 10) return 'blue';
+      else if (temp < 30) return 'green';
+      else return 'red';
+    }
+
+    // Update or create a marker on the map
+    function updateMarker(lat, lon, temperature) {
+      const color = getMarkerColor(temperature);
+
+      if (!marker) {
+        // Create a new circleMarker
+        marker = L.circleMarker([lat, lon], {
+          radius: 10,
+          fillColor: color,
+          color: color,
+          weight: 1,
+          opacity: 1,
+          fillOpacity: 0.8
+        }).addTo(map);
+
+        // Bind a popup that shows the temperature
+        marker.bindPopup(`Temperature: ${temperature}°C`);
+      } else {
+        // Move the marker to the new location
+        marker.setLatLng([lat, lon]);
+        // Update the color
+        marker.setStyle({ fillColor: color, color: color });
+        // Update popup content
+        marker.setPopupContent(`Temperature: ${temperature}°C`);
+      }
+
+      // Zoom/center the map on the marker
+      map.setView([lat, lon], 13);
+    }
 
     // Update status text on the page and log to console
     function updateStatus(message) {
@@ -88,7 +150,6 @@
 
     // Connect to MQTT Broker
     function connectMQTT() {
-      // reset isManualDisconnect
       isManualDisconnect = false;
 
       const host = document.getElementById('host').value;
@@ -102,7 +163,7 @@
 
       // Set callback handlers
       client.onConnectionLost = onConnectionLost;
-      client.onMessageArrived = onMessageArrived;  // Not used yet, but in place for future
+      client.onMessageArrived = onMessageArrived;
 
       // Connect the client
       const options = {
@@ -113,7 +174,7 @@
         }
       };
 
-      updateStatus("Connecting to " + host + ":" + port + " ...");
+      updateStatus(`Connecting to ${host}:${port} ...`);
       client.connect(options);
     }
 
@@ -121,15 +182,24 @@
     function onConnect() {
       isConnected = true;
       updateStatus("Connected to the MQTT broker.");
-      // Disable host/port inputs, disable start button, enable end button
+
+      // Disable broker inputs, enable End button
       document.getElementById('host').disabled = true;
       document.getElementById('port').disabled = true;
       document.getElementById('startBtn').disabled = true;
       document.getElementById('endBtn').disabled = false;
 
-      // Enable Publish and Share Status buttons now that we're connected
+      // Enable publish & share-status buttons
       document.getElementById('publishBtn').disabled = false;
       document.getElementById('shareStatusBtn').disabled = false;
+
+      // Subscribe to the topic typed in the "Topic" field
+      // so that we can display location markers when a GeoJSON arrives
+      const subTopic = document.getElementById('topic').value;
+      if (subTopic) {
+        client.subscribe(subTopic);
+        updateStatus(`Subscribed to topic: ${subTopic}`);
+      }
     }
 
     // Called when the client loses its connection
@@ -138,13 +208,14 @@
         updateStatus("Connection lost: " + responseObject.errorMessage);
       }
       isConnected = false;
-      // Re-enable fields/buttons so the user can reconnect
+
+      // Re-enable fields/buttons so user can reconnect
       document.getElementById('host').disabled = false;
       document.getElementById('port').disabled = false;
       document.getElementById('startBtn').disabled = false;
       document.getElementById('endBtn').disabled = true;
 
-      // Disable Publish and Share Status buttons if we're disconnected
+      // Disable publish/share-status
       document.getElementById('publishBtn').disabled = true;
       document.getElementById('shareStatusBtn').disabled = true;
     }
@@ -152,15 +223,29 @@
     // Called when a message arrives
     function onMessageArrived(message) {
       console.log("Message arrived: " + message.payloadString);
-      // Future use: handle incoming MQTT messages
+
+      // Try to parse the message as JSON (in case it's GeoJSON)
+      try {
+        const data = JSON.parse(message.payloadString);
+        // Check if it looks like a GeoJSON "Feature"
+        if (data.type === "Feature" && data.geometry && data.properties) {
+          // Extract lat/lon from geometry.coordinates
+          const coords = data.geometry.coordinates;  // [lon, lat]
+          const temperature = data.properties.temperature;
+
+          // Update the map marker
+          updateMarker(coords[1], coords[0], temperature);
+        }
+      } catch (e) {
+        console.warn("Received non-JSON or non-GeoJSON message.");
+        // It's just a regular text message, or invalid JSON.
+      }
     }
 
     // Disconnect from the MQTT broker
     function disconnectMQTT() {
       if (client && isConnected) {
-        // For auto-reconnect logic, mark this as manual
         isManualDisconnect = true;
-
         client.disconnect();
         isConnected = false;
         updateStatus("Disconnected from the MQTT broker.");
@@ -171,12 +256,12 @@
       document.getElementById('startBtn').disabled = false;
       document.getElementById('endBtn').disabled = true;
 
-      // Disable Publish and Share Status buttons
+      // Disable publish/share-status
       document.getElementById('publishBtn').disabled = true;
       document.getElementById('shareStatusBtn').disabled = true;
     }
 
-    // Publish a message to the specified topic (from user input)
+    // Publish a message to the specified topic
     function publishMessage() {
       if (!client || !isConnected) {
         updateStatus("Not connected. Please connect first.");
@@ -190,7 +275,6 @@
         updateStatus("Please enter a topic.");
         return;
       }
-
       if (!msg) {
         updateStatus("Please enter a message.");
         return;
@@ -207,8 +291,7 @@
       }
     }
 
-    // "Share My Status" - publish a GeoJSON with current location and random temperature
-    // using the *same* topic as typed in the "Topic" field
+    // "Share My Status" - publish a GeoJSON with current location + random temperature
     function shareMyStatus() {
       if (!client || !isConnected) {
         updateStatus("Not connected. Please connect first.");
@@ -221,7 +304,7 @@
         return;
       }
 
-      // Read the topic from the user input
+      // Publish to the same topic the user typed in the "Topic" field
       const shareTopic = document.getElementById('topic').value;
       if (!shareTopic) {
         updateStatus("Please enter a topic for sharing your status.");
@@ -232,7 +315,8 @@
       navigator.geolocation.getCurrentPosition(
         function(position) {
           // Generate a random temperature between -40 and 60
-          const temperature = Math.floor(Math.random() * 101) - 40; 
+          const temperature = Math.floor(Math.random() * 101) - 40;
+
           // Build GeoJSON
           const geojson = {
             type: "Feature",
@@ -245,7 +329,7 @@
             }
           };
 
-          // Publish this GeoJSON to the user-defined topic
+          // Publish this GeoJSON
           const payload = JSON.stringify(geojson);
           const message = new Paho.MQTT.Message(payload);
           message.destinationName = shareTopic;
@@ -262,6 +346,11 @@
         }
       );
     }
+
+    // Initialize map on page load
+    window.onload = function() {
+      initMap();
+    };
 
     // Event Listeners
     document.getElementById('startBtn').addEventListener('click', connectMQTT);
