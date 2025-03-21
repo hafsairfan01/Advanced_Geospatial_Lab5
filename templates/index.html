@@ -2,19 +2,22 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>MQTT Connection</title>
+  <title>MQTT Connection & Publish</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
     }
-    label, input {
+    label, input, textarea {
       display: inline-block;
       margin-top: 10px;
-      width: 200px;
     }
-    input {
+    label {
+      width: 120px;
+    }
+    input, textarea {
       padding: 5px;
+      width: 250px;
     }
     button {
       margin-top: 10px;
@@ -25,16 +28,20 @@
       margin-top: 20px;
       font-weight: bold;
     }
+    .row {
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
-  <h1>MQTT Connection</h1>
+  <h1>MQTT Connection & Publish</h1>
+
   <!-- Host and Port Inputs -->
-  <div>
+  <div class="row">
     <label for="host">Broker Host:</label>
     <input type="text" id="host" value="test.mosquitto.org" placeholder="e.g. test.mosquitto.org">
   </div>
-  <div>
+  <div class="row">
     <label for="port">Broker Port:</label>
     <input type="number" id="port" value="8080" placeholder="e.g. 8080">
   </div>
@@ -42,6 +49,24 @@
   <!-- Start/End Buttons -->
   <button id="startBtn">Start</button>
   <button id="endBtn" disabled>End</button>
+
+  <hr>
+
+  <!-- Topic and Message Inputs -->
+  <div class="row">
+    <label for="topic">Topic:</label>
+    <input type="text" id="topic" value="test/topic" placeholder="Enter a topic">
+  </div>
+  <div class="row">
+    <label for="message">Message:</label>
+    <textarea id="message" rows="3" placeholder="Type your message here"></textarea>
+  </div>
+  <button id="publishBtn" disabled>Publish</button>
+
+  <hr>
+
+  <!-- Share My Status Button -->
+  <button id="shareStatusBtn" disabled>Share My Status</button>
 
   <!-- Status Output -->
   <div id="status"></div>
@@ -52,8 +77,8 @@
   <script>
     let client = null;
     let isConnected = false;
-    let isManualDisconnect = false;  // Tracks whether user clicked "End" or disconnection was unexpected
-    const reconnectDelay = 3000;     // 3 seconds delay before auto-reconnect
+    let isManualDisconnect = false;  // For auto-reconnect logic
+    const reconnectDelay = 3000;     // For auto-reconnect logic
 
     // Update status text on the page and log to console
     function updateStatus(message) {
@@ -63,7 +88,7 @@
 
     // Connect to MQTT Broker
     function connectMQTT() {
-      // If we're trying to connect, it means disconnection wasn't manual
+      // reset isManualDisconnect
       isManualDisconnect = false;
 
       const host = document.getElementById('host').value;
@@ -85,11 +110,6 @@
         onSuccess: onConnect,
         onFailure: function(error) {
           updateStatus("Connection failed: " + error.errorMessage);
-          // Attempt to reconnect if it wasn't a manual disconnect
-          if (!isManualDisconnect) {
-            updateStatus("Attempting to reconnect in " + (reconnectDelay / 1000) + "s...");
-            setTimeout(connectMQTT, reconnectDelay);
-          }
         }
       };
 
@@ -106,6 +126,10 @@
       document.getElementById('port').disabled = true;
       document.getElementById('startBtn').disabled = true;
       document.getElementById('endBtn').disabled = false;
+
+      // Enable Publish and Share Status buttons now that we're connected
+      document.getElementById('publishBtn').disabled = false;
+      document.getElementById('shareStatusBtn').disabled = false;
     }
 
     // Called when the client loses its connection
@@ -114,19 +138,15 @@
         updateStatus("Connection lost: " + responseObject.errorMessage);
       }
       isConnected = false;
+      // Re-enable fields/buttons so the user can reconnect
+      document.getElementById('host').disabled = false;
+      document.getElementById('port').disabled = false;
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('endBtn').disabled = true;
 
-      // If user didn't manually disconnect, attempt auto-reconnect
-      if (!isManualDisconnect) {
-        updateStatus("Connection lost unexpectedly. Attempting to reconnect in " 
-          + (reconnectDelay / 1000) + "s...");
-        setTimeout(connectMQTT, reconnectDelay);
-      } else {
-        // If disconnection was manual, reset the UI so user can modify host/port or reconnect
-        document.getElementById('host').disabled = false;
-        document.getElementById('port').disabled = false;
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('endBtn').disabled = true;
-      }
+      // Disable Publish and Share Status buttons if we're disconnected
+      document.getElementById('publishBtn').disabled = true;
+      document.getElementById('shareStatusBtn').disabled = true;
     }
 
     // Called when a message arrives
@@ -138,8 +158,9 @@
     // Disconnect from the MQTT broker
     function disconnectMQTT() {
       if (client && isConnected) {
-        // Mark this as a manual disconnect
+        // For auto-reconnect logic, mark this as manual
         isManualDisconnect = true;
+
         client.disconnect();
         isConnected = false;
         updateStatus("Disconnected from the MQTT broker.");
@@ -149,11 +170,104 @@
       document.getElementById('port').disabled = false;
       document.getElementById('startBtn').disabled = false;
       document.getElementById('endBtn').disabled = true;
+
+      // Disable Publish and Share Status buttons
+      document.getElementById('publishBtn').disabled = true;
+      document.getElementById('shareStatusBtn').disabled = true;
     }
 
-    // Event Listeners for Start/End buttons
+    // Publish a message to the specified topic (from user input)
+    function publishMessage() {
+      if (!client || !isConnected) {
+        updateStatus("Not connected. Please connect first.");
+        return;
+      }
+
+      const topic = document.getElementById('topic').value;
+      const msg = document.getElementById('message').value;
+
+      if (!topic) {
+        updateStatus("Please enter a topic.");
+        return;
+      }
+
+      if (!msg) {
+        updateStatus("Please enter a message.");
+        return;
+      }
+
+      const message = new Paho.MQTT.Message(msg);
+      message.destinationName = topic;
+
+      try {
+        client.send(message);
+        updateStatus(`Published message to topic "${topic}": ${msg}`);
+      } catch (error) {
+        updateStatus("Error publishing message: " + error);
+      }
+    }
+
+    // "Share My Status" - publish a GeoJSON with current location and random temperature
+    // using the *same* topic as typed in the "Topic" field
+    function shareMyStatus() {
+      if (!client || !isConnected) {
+        updateStatus("Not connected. Please connect first.");
+        return;
+      }
+
+      // Check if geolocation is supported
+      if (!navigator.geolocation) {
+        updateStatus("Geolocation is not supported by your browser.");
+        return;
+      }
+
+      // Read the topic from the user input (instead of a fixed constant)
+      const shareTopic = document.getElementById('topic').value;
+      if (!shareTopic) {
+        updateStatus("Please enter a topic for sharing your status.");
+        return;
+      }
+
+      // Get current position
+      navigator.geolocation.getCurrentPosition(
+        function(position) {
+          // Generate a random temperature between -40 and 60
+          const temperature = Math.floor(Math.random() * 101) - 40; 
+          // Build GeoJSON
+          const geojson = {
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [ position.coords.longitude, position.coords.latitude ]
+            },
+            properties: {
+              temperature: temperature
+            }
+          };
+
+          // Publish this GeoJSON to the user-defined topic
+          const payload = JSON.stringify(geojson);
+          const message = new Paho.MQTT.Message(payload);
+          message.destinationName = shareTopic;
+
+          try {
+            client.send(message);
+            updateStatus(`Shared status to topic "${shareTopic}": ${payload}`);
+          } catch (error) {
+            updateStatus("Error publishing GeoJSON status: " + error);
+          }
+        },
+        function(error) {
+          updateStatus("Error getting location: " + error.message);
+        }
+      );
+    }
+
+    // Event Listeners
     document.getElementById('startBtn').addEventListener('click', connectMQTT);
     document.getElementById('endBtn').addEventListener('click', disconnectMQTT);
+    document.getElementById('publishBtn').addEventListener('click', publishMessage);
+    document.getElementById('shareStatusBtn').addEventListener('click', shareMyStatus);
   </script>
 </body>
 </html>

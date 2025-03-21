@@ -63,6 +63,11 @@
   </div>
   <button id="publishBtn" disabled>Publish</button>
 
+  <hr>
+
+  <!-- Share My Status Button -->
+  <button id="shareStatusBtn" disabled>Share My Status</button>
+
   <!-- Status Output -->
   <div id="status"></div>
 
@@ -72,8 +77,8 @@
   <script>
     let client = null;
     let isConnected = false;
-    let isManualDisconnect = false;  // For auto-reconnect logic 
-    const reconnectDelay = 3000;     // For auto-reconnect logic 
+    let isManualDisconnect = false;  // For auto-reconnect logic
+    const reconnectDelay = 3000;     // For auto-reconnect logic
 
     // Update status text on the page and log to console
     function updateStatus(message) {
@@ -122,8 +127,9 @@
       document.getElementById('startBtn').disabled = true;
       document.getElementById('endBtn').disabled = false;
 
-      // Enable Publish button now that we're connected
+      // Enable Publish and Share Status buttons now that we're connected
       document.getElementById('publishBtn').disabled = false;
+      document.getElementById('shareStatusBtn').disabled = false;
     }
 
     // Called when the client loses its connection
@@ -138,10 +144,9 @@
       document.getElementById('startBtn').disabled = false;
       document.getElementById('endBtn').disabled = true;
 
-      // Disable Publish button if we're disconnected
+      // Disable Publish and Share Status buttons if we're disconnected
       document.getElementById('publishBtn').disabled = true;
-
-      
+      document.getElementById('shareStatusBtn').disabled = true;
     }
 
     // Called when a message arrives
@@ -166,11 +171,12 @@
       document.getElementById('startBtn').disabled = false;
       document.getElementById('endBtn').disabled = true;
 
-      // Disable Publish button
+      // Disable Publish and Share Status buttons
       document.getElementById('publishBtn').disabled = true;
+      document.getElementById('shareStatusBtn').disabled = true;
     }
 
-    // Publish a message to the specified topic
+    // Publish a message to the specified topic (from user input)
     function publishMessage() {
       if (!client || !isConnected) {
         updateStatus("Not connected. Please connect first.");
@@ -201,10 +207,67 @@
       }
     }
 
+    // "Share My Status" - publish a GeoJSON with current location and random temperature
+    // using the *same* topic as typed in the "Topic" field
+    function shareMyStatus() {
+      if (!client || !isConnected) {
+        updateStatus("Not connected. Please connect first.");
+        return;
+      }
+
+      // Check if geolocation is supported
+      if (!navigator.geolocation) {
+        updateStatus("Geolocation is not supported by your browser.");
+        return;
+      }
+
+      // Read the topic from the user input
+      const shareTopic = document.getElementById('topic').value;
+      if (!shareTopic) {
+        updateStatus("Please enter a topic for sharing your status.");
+        return;
+      }
+
+      // Get current position
+      navigator.geolocation.getCurrentPosition(
+        function(position) {
+          // Generate a random temperature between -40 and 60
+          const temperature = Math.floor(Math.random() * 101) - 40; 
+          // Build GeoJSON
+          const geojson = {
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [ position.coords.longitude, position.coords.latitude ]
+            },
+            properties: {
+              temperature: temperature
+            }
+          };
+
+          // Publish this GeoJSON to the user-defined topic
+          const payload = JSON.stringify(geojson);
+          const message = new Paho.MQTT.Message(payload);
+          message.destinationName = shareTopic;
+
+          try {
+            client.send(message);
+            updateStatus(`Shared status to topic "${shareTopic}": ${payload}`);
+          } catch (error) {
+            updateStatus("Error publishing GeoJSON status: " + error);
+          }
+        },
+        function(error) {
+          updateStatus("Error getting location: " + error.message);
+        }
+      );
+    }
+
     // Event Listeners
     document.getElementById('startBtn').addEventListener('click', connectMQTT);
     document.getElementById('endBtn').addEventListener('click', disconnectMQTT);
     document.getElementById('publishBtn').addEventListener('click', publishMessage);
+    document.getElementById('shareStatusBtn').addEventListener('click', shareMyStatus);
   </script>
 </body>
 </html>
