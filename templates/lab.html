@@ -1,56 +1,139 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>MQTT Broker Settings</title>
+  <meta charset="utf-8" />
+  <title>MQTT Connection</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
     }
-    label {
+    label, input {
       display: inline-block;
-      width: 150px;
       margin-top: 10px;
-    }
-    input {
-      margin-top: 10px;
-      padding: 5px;
       width: 200px;
     }
+    input {
+      padding: 5px;
+    }
     button {
-      display: block;
-      margin-top: 20px;
+      margin-top: 10px;
       padding: 8px 12px;
       cursor: pointer;
+    }
+    #status {
+      margin-top: 20px;
+      font-weight: bold;
     }
   </style>
 </head>
 <body>
-  <h1>MQTT Broker Settings</h1>
+  <h1>MQTT Connection</h1>
+  <!-- Host and Port Inputs -->
+  <div>
+    <label for="host">Broker Host:</label>
+    <input type="text" id="host" value="test.mosquitto.org" placeholder="e.g. test.mosquitto.org">
+  </div>
+  <div>
+    <label for="port">Broker Port:</label>
+    <input type="number" id="port" value="8080" placeholder="e.g. 8080">
+  </div>
 
-  <label for="host">Broker Host:</label>
-  <input type="text" id="host" value="test.mosquitto.org" placeholder="e.g. test.mosquitto.org">
+  <!-- Start/End Buttons -->
+  <button id="startBtn">Start</button>
+  <button id="endBtn" disabled>End</button>
 
-  <br>
+  <!-- Status Output -->
+  <div id="status"></div>
 
-  <label for="port">Broker Port:</label>
-  <input type="number" id="port" value="8080" placeholder="e.g. 8080">
-
-  <br>
-
-  <button id="saveSettingsBtn">Confirm Settings</button>
+  <!-- Include Paho MQTT JavaScript Client Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
 
   <script>
-    document.getElementById("saveSettingsBtn").addEventListener("click", function() {
-      const hostValue = document.getElementById("host").value;
-      const portValue = document.getElementById("port").value;
+    let client = null;
+    let isConnected = false;
 
-      // This will just show the user’s selections in an alert
-      alert("You entered:\nHost: " + hostValue + "\nPort: " + portValue);
+    // Update status text on the page and log to console
+    function updateStatus(message) {
+      document.getElementById('status').textContent = message;
+      console.log(message);
+    }
 
+    // Connect to MQTT Broker
+    function connectMQTT() {
+      const host = document.getElementById('host').value;
+      const port = parseInt(document.getElementById('port').value);
 
-    });
+      // Generate a random client ID
+      const clientId = "client_" + Math.random().toString(16).substr(2, 8);
+
+      // Create a new Paho MQTT client
+      client = new Paho.MQTT.Client(host, port, clientId);
+
+      // Set callback handlers
+      client.onConnectionLost = onConnectionLost;
+      client.onMessageArrived = onMessageArrived;  // Not used yet, but in place for future
+
+      // Connect the client
+      const options = {
+        timeout: 3,
+        onSuccess: onConnect,
+        onFailure: function(error) {
+          updateStatus("Connection failed: " + error.errorMessage);
+        }
+      };
+
+      updateStatus("Connecting to " + host + ":" + port + " ...");
+      client.connect(options);
+    }
+
+    // Called when the client connects
+    function onConnect() {
+      isConnected = true;
+      updateStatus("Connected to the MQTT broker.");
+      // Disable host/port inputs, disable start button, enable end button
+      document.getElementById('host').disabled = true;
+      document.getElementById('port').disabled = true;
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('endBtn').disabled = false;
+    }
+
+    // Called when the client loses its connection
+    function onConnectionLost(responseObject) {
+      if (responseObject.errorCode !== 0) {
+        updateStatus("Connection lost: " + responseObject.errorMessage);
+      }
+      isConnected = false;
+      // Re-enable fields/buttons so the user can reconnect
+      document.getElementById('host').disabled = false;
+      document.getElementById('port').disabled = false;
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('endBtn').disabled = true;
+    }
+
+    // Called when a message arrives
+    function onMessageArrived(message) {
+      console.log("Message arrived: " + message.payloadString);
+      // Future use: handle incoming MQTT messages
+    }
+
+    // Disconnect from the MQTT broker
+    function disconnectMQTT() {
+      if (client && isConnected) {
+        client.disconnect();
+        isConnected = false;
+        updateStatus("Disconnected from the MQTT broker.");
+      }
+      // Re-enable fields/buttons
+      document.getElementById('host').disabled = false;
+      document.getElementById('port').disabled = false;
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('endBtn').disabled = true;
+    }
+
+    // Event Listeners for Start/End buttons
+    document.getElementById('startBtn').addEventListener('click', connectMQTT);
+    document.getElementById('endBtn').addEventListener('click', disconnectMQTT);
   </script>
 </body>
 </html>
